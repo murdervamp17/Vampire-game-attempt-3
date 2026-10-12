@@ -1,1 +1,57 @@
-
+name: Vampre Build
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+jobs:
+  pages:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: mkdir site && cp index.html game.js site/
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: site }
+      - id: deploy
+        uses: actions/deploy-pages@v4
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - run: npm install
+      - run: mkdir www && cp index.html game.js www/
+      - run: npx cap add android
+      - name: Lock landscape
+        run: sed -i 's/<activity /<activity android:screenOrientation="sensorLandscape" /' android/app/src/main/AndroidManifest.xml
+      - name: Build debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk vampre.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: vampre-apk, path: vampre.apk }
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [pages, apk]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: vampre-apk }
+      - run: zip vampre-web-${{ github.ref_name }}.zip index.html game.js README.md
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            vampre.apk
+            vampre-web-${{ github.ref_name }}.zip
+          generate_release_notes: true
